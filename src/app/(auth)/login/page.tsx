@@ -110,8 +110,8 @@ export default function LoginPage() {
 
           <div className="pt-8 border-t border-border">
             <blockquote className="text-lg italic text-muted-foreground">
-              "ArtMint changed how I collect digital art. Finally, true
-              ownership."
+              'ArtMint changed how I collect digital art. Finally, true
+              ownership.'
             </blockquote>
             <p className="mt-4 text-mint-500 font-medium">— Happy Collector</p>
           </div>

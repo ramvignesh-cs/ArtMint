@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyIdToken } from "@/lib/firebase-admin";
-import { getAsset, toMinimalAssetResponse } from "@/lib/contentstack-am2";
+import { getAssetFromCDA, toMinimalAssetResponse } from "@/lib/contentstack-am2";
 import { log } from "@/lib/logger";
 
 /**
@@ -96,7 +96,7 @@ export async function POST(request: NextRequest) {
 
     // Fetch all assets in parallel
     const assetPromises = assetUids.map((uid: string) =>
-      getAsset(uid).catch((error) => {
+      getAssetFromCDA(uid).catch((error) => {
         log.error(`Failed to fetch asset`, error, { assetUid: uid });
         return null;
       })
