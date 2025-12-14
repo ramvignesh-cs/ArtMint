@@ -1,0 +1,194 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 5%;
+    --foreground: 0 0% 98%;
+
+    --card: 0 0% 10%;
+    --card-foreground: 0 0% 98%;
+
+    --popover: 0 0% 10%;
+    --popover-foreground: 0 0% 98%;
+
+    --primary: 160 100% 48%;
+    --primary-foreground: 0 0% 5%;
+
+    --secondary: 0 0% 15%;
+    --secondary-foreground: 0 0% 98%;
+
+    --muted: 0 0% 15%;
+    --muted-foreground: 0 0% 65%;
+
+    --accent: 270 50% 50%;
+    --accent-foreground: 0 0% 98%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 98%;
+
+    --border: 0 0% 18%;
+    --input: 0 0% 18%;
+    --ring: 160 100% 48%;
+
+    --radius: 0.75rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  
+  body {
+    @apply bg-background text-foreground antialiased;
+  }
+
+  /* Custom scrollbar for dark theme */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: hsl(var(--background));
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 4px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground));
+  }
+}
+
+@layer utilities {
+  /* Logo color filter to match mint theme #00F5A0 */
+  .logo-mint {
+    filter: brightness(0) saturate(100%) invert(83%) sepia(47%) saturate(1057%) hue-rotate(93deg) brightness(101%) contrast(101%);
+  }
+
+  /* Mint glow effect for cards */
+  .mint-glow {
+    box-shadow: 0 0 20px rgba(0, 245, 160, 0.2);
+  }
+
+  .mint-glow-hover:hover {
+    box-shadow: 0 0 30px rgba(0, 245, 160, 0.4);
+  }
+
+  /* Gradient text */
+  .gradient-text {
+    background: linear-gradient(135deg, #00F5A0 0%, #9B59B6 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* Glass effect */
+  .glass {
+    background: rgba(26, 26, 26, 0.8);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+
+  /* Art card hover effect */
+  .art-card {
+    @apply relative overflow-hidden rounded-xl transition-all duration-300;
+  }
+
+  .art-card::before {
+    content: '';
+    @apply absolute inset-0 opacity-0 transition-opacity duration-300;
+    background: linear-gradient(135deg, rgba(0, 245, 160, 0.1) 0%, rgba(155, 89, 182, 0.1) 100%);
+  }
+
+  .art-card:hover::before {
+    @apply opacity-100;
+  }
+
+  .art-card:hover {
+    @apply mint-glow transform scale-[1.02];
+  }
+
+  /* Shimmer loading effect */
+  .shimmer {
+    background: linear-gradient(
+      90deg,
+      hsl(var(--card)) 0%,
+      hsl(var(--border)) 50%,
+      hsl(var(--card)) 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 2s linear infinite;
+  }
+
+  /* Fade in animation */
+  .fade-in {
+    animation: fade-in 0.5s ease-out forwards;
+  }
+
+  .fade-in-delay-1 {
+    animation: fade-in 0.5s ease-out 0.1s forwards;
+    opacity: 0;
+  }
+
+  .fade-in-delay-2 {
+    animation: fade-in 0.5s ease-out 0.2s forwards;
+    opacity: 0;
+  }
+
+  .fade-in-delay-3 {
+    animation: fade-in 0.5s ease-out 0.3s forwards;
+    opacity: 0;
+  }
+}
+
+/* Custom button styles */
+.btn-primary {
+  @apply bg-mint-500 text-gallery-dark font-semibold px-6 py-3 rounded-lg;
+  @apply hover:bg-mint-400 transition-all duration-200;
+  @apply shadow-lg hover:shadow-mint-500/30;
+}
+
+.btn-secondary {
+  @apply border border-mint-500 text-mint-500 font-semibold px-6 py-3 rounded-lg;
+  @apply hover:bg-mint-500/10 transition-all duration-200;
+}
+
+/* Hero gradient background */
+.hero-gradient {
+  background: 
+    radial-gradient(ellipse at 20% 50%, rgba(0, 245, 160, 0.15) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 50%, rgba(155, 89, 182, 0.15) 0%, transparent 50%),
+    linear-gradient(180deg, #0D0D0D 0%, #0D0D0D 100%);
+}
+
+/* Card gradient border effect */
+.gradient-border {
+  position: relative;
+}
+
+.gradient-border::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg, #00F5A0 0%, #9B59B6 100%);
+  -webkit-mask: 
+    linear-gradient(#fff 0 0) content-box, 
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.gradient-border:hover::before {
+  opacity: 1;
+}
+

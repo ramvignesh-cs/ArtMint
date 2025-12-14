@@ -1,0 +1,138 @@
+import { NextRequest, NextResponse } from "next/server";
+import { verifyIdToken, getServerUserProfile, getServerWallet } from "@/lib/firebase-admin";
+import { getAssetFromCDA } from "@/lib/contentstack-am2";
+import { createCheckoutSession } from "@/lib/stripe";
+import { createCheckoutSchema } from "@/lib/validations";
+
+// Configure route for App Router
+export const runtime = "nodejs";
+export const maxDuration = 30; // 30 seconds max duration
+
+/**
+ * POST /api/purchase/checkout
+ * Create a Stripe checkout session for artwork purchase
+ */
+export async function POST(request: NextRequest) {
+  try {
+    // Verify authentication
+    const authHeader = request.headers.get("Authorization");
+    if (!authHeader?.startsWith("Bearer ")) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const token = authHeader.split("Bearer ")[1];
+    const decodedToken = await verifyIdToken(token);
+
+    if (!decodedToken) {
+      return NextResponse.json({ error: "Invalid token" }, { status: 401 });
+    }
+
+    // Parse and validate request body
+    const body = await request.json();
+    const validation = createCheckoutSchema.safeParse(body);
+
+    if (!validation.success) {
+      return NextResponse.json(
+        { error: "Invalid request", details: validation.error.errors },
+        { status: 400 }
+      );
+    }
+
+    const { artworkId } = validation.data;
+
+    // Get user profile
+    const profile = await getServerUserProfile(decodedToken.uid);
+
+    if (!profile?.walletId) {
+      return NextResponse.json(
+        { error: "No wallet found. Please complete account setup." },
+        { status: 400 }
+      );
+    }
+
+    // Get artwork details from Contentstack Asset Management 2.0
+    const asset = await getAssetFromCDA(artworkId);
+
+    if (!asset) {
+      return NextResponse.json(
+        { error: "Artwork not found" },
+        { status: 404 }
+      );
+    }
+
+    const artMetadata = asset.custom_metadata?.art_metadata;
+
+    if (!artMetadata?.price || artMetadata.price === null) {
+      return NextResponse.json(
+        { error: "Artwork is not for sale" },
+        { status: 400 }
+      );
+    }
+
+    // Check if artwork is available for purchase (status should be "sale" or "resale")
+    if (artMetadata.status !== "sale" && artMetadata.status !== "resale") {
+      return NextResponse.json(
+        { error: "This artwork is not available for purchase" },
+        { status: 400 }
+      );
+    }
+
+    // Check if user already owns this artwork
+    const alreadyOwned = artMetadata.owners?.some(
+      (owner) => owner.user_id === decodedToken.uid
+    );
+
+    if (alreadyOwned) {
+      return NextResponse.json(
+        { error: "You already own this artwork" },
+        { status: 400 }
+      );
+    }
+
+    // Cannot purchase your own artwork
+    if (artMetadata.artist_uid === decodedToken.uid) {
+      return NextResponse.json(
+        { error: "Cannot purchase your own artwork" },
+        { status: 400 }
+      );
+    }
+
+    // Build success and cancel URLs
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+    const successUrl = `${baseUrl}/success?session_id={CHECKOUT_SESSION_ID}`;
+    const cancelUrl = `${baseUrl}/art/${artworkId}`;
+
+    // Create Stripe checkout session
+    const session = await createCheckoutSession({
+      artworkId,
+      artworkTitle: asset.title,
+      price: artMetadata.price as number, // We've already checked it's not null
+      imageUrl: asset.url,
+      userId: decodedToken.uid,
+      walletId: profile.walletId,
+      successUrl,
+      cancelUrl,
+    });
+
+    return NextResponse.json({
+      sessionId: session.id,
+      url: session.url,
+    });
+  } catch (error: any) {
+    log.error("Checkout error", error);
+    
+    // Provide more specific error messages
+    if (error.message) {
+      return NextResponse.json(
+        { error: error.message },
+        { status: 500 }
+      );
+    }
+    
+    return NextResponse.json(
+      { error: "Failed to create checkout session. Please try again." },
+      { status: 500 }
+    );
+  }
+}
+
