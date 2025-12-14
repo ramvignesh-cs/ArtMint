@@ -198,7 +198,7 @@ export async function uploadAsset(
 
   // Create file blob if buffer
   const fileBlob =
-    file instanceof Blob ? file : new Blob([file], { type: "image/*" });
+    file instanceof Blob ? file : new Blob([file as unknown as ArrayBuffer], { type: "image/*" });
 
   formData.append("asset[upload]", fileBlob, filename);
   formData.append("asset[title]", metadata.title);

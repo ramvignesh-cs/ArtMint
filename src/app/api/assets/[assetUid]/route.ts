@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyIdToken, getServerUserProfile } from "@/lib/firebase-admin";
-import { getAssetFromCDA, updateAssetMetadata, triggerContentstackAutomation, toMinimalAssetResponse, getAssetUsingAMV2API } from "@/lib/contentstack-am2";
+import { updateAssetMetadata, triggerContentstackAutomation, toMinimalAssetResponse, getAssetUsingAMV2API } from "@/lib/contentstack-am2";
 import { assetUpdateSchema } from "@/lib/validations";
+import { log } from "@/lib/logger";
 
 /**
  * GET /api/assets/[assetUid]

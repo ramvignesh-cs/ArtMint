@@ -1,7 +1,8 @@
 import { initializeApp, getApps, cert, App } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
-import { getFirestore } from "firebase-admin/firestore";
+import { DocumentSnapshot, getFirestore } from "firebase-admin/firestore";
 import { log } from "@/lib/logger";
+import { UserProfile } from "../types";
 
 /**
  * Firebase Admin SDK for server-side operations
@@ -82,7 +83,7 @@ export async function verifyIdToken(token: string) {
  * Get user profile from Firestore (server-side)
  */
 export async function getServerUserProfile(uid: string) {
-  const userDoc = await adminDb().collection("users").doc(uid).get();
+  const userDoc = await adminDb().collection("users").doc(uid).get() as DocumentSnapshot<UserProfile>;
   if (!userDoc.exists) return null;
   return { id: userDoc.id, ...userDoc.data() };
 }

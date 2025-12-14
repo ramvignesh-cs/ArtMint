@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyIdToken, getServerUserProfile } from "@/lib/firebase-admin";
 import { publishAsset, toMinimalAssetResponse } from "@/lib/contentstack-am2";
+import { log } from "@/lib/logger";
 
 /**
  * POST /api/assets/[assetUid]/publish
@@ -46,8 +47,8 @@ export async function POST(
     }
 
     // Verify the asset belongs to the artist
-    const { getAsset } = await import("@/lib/contentstack-am2");
-    const asset = await getAsset(assetUid);
+    const { getAssetUsingAMV2API } = await import("@/lib/contentstack-am2");
+    const asset = await getAssetUsingAMV2API(assetUid);
 
     if (asset.custom_metadata.art_metadata.artist_uid !== decodedToken.uid) {
       return NextResponse.json(

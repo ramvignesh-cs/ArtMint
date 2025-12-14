@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { motion } from "framer-motion";
@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { useAuth } from "@/context/AuthContext";
 
-export default function SuccessPage() {
+function SuccessContent() {
   const searchParams = useSearchParams();
   const { refreshWallet, user } = useAuth();
   const [processingStatus, setProcessingStatus] = useState<"idle" | "processing" | "success" | "error">("idle");
@@ -249,5 +249,23 @@ export default function SuccessPage() {
 
       <Footer />
     </div>
+  );
+}
+
+export default function SuccessPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gallery-dark">
+        <Header />
+        <main className="container mx-auto px-4 py-8">
+          <div className="flex items-center justify-center min-h-[60vh]">
+            <div className="text-muted-foreground">Loading...</div>
+          </div>
+        </main>
+        <Footer />
+      </div>
+    }>
+      <SuccessContent />
+    </Suspense>
   );
 }

@@ -3,6 +3,7 @@ import { verifyIdToken, getServerUserProfile, getServerWallet } from "@/lib/fire
 import { getAssetFromCDA } from "@/lib/contentstack-am2";
 import { createCheckoutSession } from "@/lib/stripe";
 import { createCheckoutSchema } from "@/lib/validations";
+import { log } from "@/lib/logger";
 
 // Configure route for App Router
 export const runtime = "nodejs";
@@ -43,7 +44,7 @@ export async function POST(request: NextRequest) {
     // Get user profile
     const profile = await getServerUserProfile(decodedToken.uid);
 
-    if (!profile?.walletId) {
+    if (!((profile as any)?.walletId)) {
       return NextResponse.json(
         { error: "No wallet found. Please complete account setup." },
         { status: 400 }
@@ -109,7 +110,7 @@ export async function POST(request: NextRequest) {
       price: artMetadata.price as number, // We've already checked it's not null
       imageUrl: asset.url,
       userId: decodedToken.uid,
-      walletId: profile.walletId,
+      walletId: (profile as any).walletId,
       successUrl,
       cancelUrl,
     });

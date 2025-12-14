@@ -27,6 +27,7 @@ import {
   Timestamp,
   orderBy,
 } from "firebase/firestore";
+import { UserProfile } from "../types";
 
 // Firebase configuration using environment variables
 const firebaseConfig = {
@@ -205,7 +206,7 @@ export async function getWallet(walletId: string) {
 }
 
 export async function getWalletByUserId(uid: string) {
-  const userProfile = await getUserProfile(uid);
+  const userProfile = await getUserProfile(uid) as UserProfile;
   if (!userProfile || !userProfile.walletId) return null;
   return getWallet(userProfile.walletId);
 }

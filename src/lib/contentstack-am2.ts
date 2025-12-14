@@ -706,7 +706,7 @@ export async function getAssetFromCDA(assetUid: string): Promise<ContentstackAss
     const errorText = await response.text();
     if (response.status === 404) {
       // Special handling for 404 - asset not found
-      log.error(`[Contentstack CDA Error] getAsset - Asset not found`, undefined, {
+      log.error(`[Contentstack CDA Error] getAssetFromCDA - Asset not found`, undefined, {
         assetUid,
         status: response.status,
         environment,
@@ -755,7 +755,7 @@ export async function getAssetFromCDA(assetUid: string): Promise<ContentstackAss
       errorMessage = errorText;
     }
 
-    log.error(`[Contentstack CDA Error] getAsset`, undefined, {
+    log.error(`[Contentstack CDA Error] getAssetFromCDA`, undefined, {
       status: response.status,
       statusText: response.statusText,
       errorMessage,

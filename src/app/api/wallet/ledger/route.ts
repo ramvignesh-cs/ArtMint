@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
     // Get user profile to find wallet ID
     const profile = await getServerUserProfile(decodedToken.uid);
 
-    if (!profile?.walletId) {
+    if (!((profile as any)?.walletId)) {
       return NextResponse.json(
         { error: "No wallet found for user" },
         { status: 404 }
@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Get wallet data
-    const wallet = await getServerWallet(profile.walletId);
+    const wallet = await getServerWallet((profile as any)?.walletId);
 
     if (!wallet) {
       return NextResponse.json({ error: "Wallet not found" }, { status: 404 });
@@ -41,10 +41,10 @@ export async function GET(request: NextRequest) {
     // Return wallet data with transactions
     return NextResponse.json({
       walletId: wallet.id,
-      balance: wallet.balance || 0,
-      transactions: wallet.transactions || [],
-      createdAt: wallet.createdAt,
-      updatedAt: wallet.updatedAt,
+      balance: (wallet as any).balance || 0,
+      transactions: (wallet as any).transactions || [],
+      createdAt: (wallet as any).createdAt,
+      updatedAt: (wallet as any).updatedAt,
     });
   } catch (error: any) {
     log.error("Ledger fetch error", error);

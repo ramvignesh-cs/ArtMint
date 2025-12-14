@@ -11,6 +11,7 @@ import {
   getAssetUsingAMV2API,
 } from "@/lib/contentstack-am2";
 import { assetUploadSchema } from "@/lib/validations";
+import { log } from "@/lib/logger";
 
 /**
  * POST /api/assets/upload

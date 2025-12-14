@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyIdToken, getServerUserProfile } from "@/lib/firebase-admin";
 import { updateAssetMetadata, triggerContentstackAutomation, toMinimalAssetResponse, getAssetUsingAMV2API, getAssetFromCDA } from "@/lib/contentstack-am2";
+import { log } from "@/lib/logger";
 import { z } from "zod";
 
 const resaleSchema = z.object({

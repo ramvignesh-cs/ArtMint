@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, Suspense } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -27,7 +27,7 @@ import { Separator } from "@/components/ui/separator";
 import { toast } from "@/hooks/useToast";
 import { cn } from "@/lib/utils";
 
-export default function SignUpPage() {
+function SignUpForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const defaultRole = searchParams.get("role") as "buyer" | "artist" | null;
@@ -412,6 +412,18 @@ export default function SignUpPage() {
         </motion.div>
       </div>
     </div>
+  );
+}
+
+export default function SignUpPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gallery-dark flex items-center justify-center">
+        <div className="text-muted-foreground">Loading...</div>
+      </div>
+    }>
+      <SignUpForm />
+    </Suspense>
   );
 }
 

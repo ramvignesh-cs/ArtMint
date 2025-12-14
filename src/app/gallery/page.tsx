@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { log } from "@/lib/logger";
@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/select";
 import type { Asset } from "@/lib/contentstack";
 
-export default function GalleryPage() {
+function GalleryContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   
@@ -395,6 +395,24 @@ export default function GalleryPage() {
 
       <Footer />
     </div>
+  );
+}
+
+export default function GalleryPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gallery-dark">
+        <Header />
+        <main className="container mx-auto px-4 py-8">
+          <div className="flex items-center justify-center min-h-[60vh]">
+            <div className="text-muted-foreground">Loading gallery...</div>
+          </div>
+        </main>
+        <Footer />
+      </div>
+    }>
+      <GalleryContent />
+    </Suspense>
   );
 }
 
