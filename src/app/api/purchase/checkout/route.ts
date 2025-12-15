@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { verifyIdToken, getServerUserProfile, getServerWallet } from "@/lib/firebase-admin";
+import { verifyIdToken, getServerUserProfile, getServerWallet, getAcceptedOffer } from "@/lib/firebase-admin";
 import { getAssetFromCDA } from "@/lib/contentstack-am2";
 import { createCheckoutSession } from "@/lib/stripe";
 import { createCheckoutSchema } from "@/lib/validations";
@@ -70,20 +70,28 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check if artwork is available for purchase (status should be "sale" or "resale")
-    if (artMetadata.status !== "sale" && artMetadata.status !== "resale") {
+    // Check if artwork is available for purchase
+    // It can be: "sale", "resale", or "sold" with an accepted offer for this buyer
+    const acceptedOffer = await getAcceptedOffer(artworkId, decodedToken.uid);
+    const hasAcceptedOffer = acceptedOffer && acceptedOffer.buyerId === decodedToken.uid;
+    const isAvailableForSale = artMetadata.status === "sale" || artMetadata.status === "resale";
+    
+    if (!isAvailableForSale && !hasAcceptedOffer) {
       return NextResponse.json(
         { error: "This artwork is not available for purchase" },
         { status: 400 }
       );
     }
+    
+    // If there's an accepted offer, use the offer price
+    const purchasePrice = hasAcceptedOffer 
+      ? (acceptedOffer.amount || artMetadata.price)
+      : artMetadata.price;
 
-    // Check if user already owns this artwork
-    const alreadyOwned = artMetadata.owners?.some(
-      (owner) => owner.user_id === decodedToken.uid
-    );
+    // Check if user is the current owner
+    const isCurrentOwner = artMetadata.current_owner?.user_id === decodedToken.uid;
 
-    if (alreadyOwned) {
+    if (isCurrentOwner) {
       return NextResponse.json(
         { error: "You already own this artwork" },
         { status: 400 }
@@ -107,7 +115,7 @@ export async function POST(request: NextRequest) {
     const session = await createCheckoutSession({
       artworkId,
       artworkTitle: asset.title,
-      price: artMetadata.price as number, // We've already checked it's not null
+      price: purchasePrice as number, // Use offer price if accepted offer exists
       imageUrl: asset.url,
       userId: decodedToken.uid,
       walletId: (profile as any).walletId,

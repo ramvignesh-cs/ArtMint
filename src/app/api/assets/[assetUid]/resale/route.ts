@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyIdToken, getServerUserProfile } from "@/lib/firebase-admin";
 import { updateAssetMetadata, triggerContentstackAutomation, toMinimalAssetResponse, getAssetUsingAMV2API, getAssetFromCDA } from "@/lib/contentstack-am2";
+import { revalidatePath } from "next/cache";
 import { log } from "@/lib/logger";
 import { z } from "zod";
 
@@ -44,11 +45,9 @@ export async function POST(
     // Get current asset to verify ownership
     const currentAsset = await getAssetFromCDA(assetUid);
     const artMetadata = currentAsset.custom_metadata?.art_metadata;
-    const owners = artMetadata?.owners || [];
-    
-    // Check if user is the current owner (last owner in the array)
-    const isCurrentOwner = owners.length > 0 && owners[owners.length - 1]?.user_id === userId;
-    
+    // Check if user is the current owner
+    const isCurrentOwner = artMetadata?.current_owner?.user_id === userId;
+
     if (!isCurrentOwner) {
       return NextResponse.json(
         { error: "Only the current owner can list this asset for resale" },
@@ -82,6 +81,9 @@ export async function POST(
     // Trigger Contentstack Automation API (async, non-blocking)
     triggerContentstackAutomation(assetUid);
 
+    // Revalidate artwork page to show updated status
+    revalidatePath(`/art/${assetUid}`);
+
     const updatedAsset = await getAssetUsingAMV2API(assetUid);
 
     // Return only required fields for UI
@@ -101,6 +103,97 @@ export async function POST(
 
     return NextResponse.json(
       { error: error.message || "Failed to list asset for resale" },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * DELETE /api/assets/[assetUid]/resale
+ * Withdraw an asset from resale (remove from secondary market)
+ * 
+ * Only the current owner can withdraw an asset from resale.
+ * This updates the status back to "sold".
+ */
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ assetUid: string }> }
+) {
+  try {
+    // Verify authentication
+    const authHeader = request.headers.get("Authorization");
+    if (!authHeader?.startsWith("Bearer ")) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const token = authHeader.split("Bearer ")[1];
+    const decodedToken = await verifyIdToken(token);
+
+    if (!decodedToken) {
+      return NextResponse.json({ error: "Invalid token" }, { status: 401 });
+    }
+
+    const userId = decodedToken.uid;
+    const { assetUid } = await params;
+
+    if (!assetUid) {
+      return NextResponse.json({ error: "Asset UID is required" }, { status: 400 });
+    }
+
+    // Get current asset to verify ownership and status
+    const currentAsset = await getAssetFromCDA(assetUid);
+    const artMetadata = currentAsset.custom_metadata?.art_metadata;
+    const owners = artMetadata?.ownership_history || [];
+    const currentStatus = artMetadata?.status;
+    
+    // Check if user is the current owner (last owner in the array)
+    const isCurrentOwner = owners.length > 0 && owners[owners.length - 1]?.user_id === userId;
+    
+    if (!isCurrentOwner) {
+      return NextResponse.json(
+        { error: "Only the current owner can withdraw this asset from resale" },
+        { status: 403 }
+      );
+    }
+
+    // Check if asset is actually listed for resale
+    if (currentStatus !== "resale") {
+      return NextResponse.json(
+        { error: "This asset is not currently listed for resale" },
+        { status: 400 }
+      );
+    }
+
+    // Update asset status back to "sold"
+    const asset = await updateAssetMetadata(assetUid, {
+      status: "sold",
+    });
+
+    // Trigger Contentstack Automation API (async, non-blocking)
+    triggerContentstackAutomation(assetUid);
+
+    // Revalidate artwork page to show updated status
+    revalidatePath(`/art/${assetUid}`);
+
+    const updatedAsset = await getAssetUsingAMV2API(assetUid);
+
+    // Return only required fields for UI
+    const minimalAsset = toMinimalAssetResponse(updatedAsset);
+
+    return NextResponse.json({
+      success: true,
+      notice: "Asset withdrawn from resale successfully",
+      asset: minimalAsset,
+    });
+  } catch (error: any) {
+    log.error("Withdraw resale error", error);
+    
+    if (error.message.includes("not found")) {
+      return NextResponse.json({ error: error.message }, { status: 404 });
+    }
+
+    return NextResponse.json(
+      { error: error.message || "Failed to withdraw asset from resale" },
       { status: 500 }
     );
   }

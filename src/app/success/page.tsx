@@ -16,28 +16,61 @@ function SuccessContent() {
   const searchParams = useSearchParams();
   const { refreshWallet, user } = useAuth();
   const [processingStatus, setProcessingStatus] = useState<"idle" | "processing" | "success" | "error">("idle");
+  const [transactionData, setTransactionData] = useState<{
+    artMintTransactionId?: string;
+    gatewayPaymentId?: string;
+  } | null>(null);
   const hasProcessedRef = useRef(false);
   const processingRef = useRef(false);
+  const sessionIdRef = useRef<string | null>(null);
 
   const sessionId = searchParams.get("session_id");
 
-  useEffect(() => {
-    // Refresh wallet after successful purchase
-    refreshWallet();
-  }, []); // Only run once on mount
-
   // Manual processing fallback (for local development when webhook doesn't fire)
   useEffect(() => {
-    if (!sessionId || !user || hasProcessedRef.current || processingRef.current) return;
+    // Early return if conditions not met
+    if (!sessionId || !user) return;
+    
+    // Check sessionStorage to prevent multiple calls across re-renders
+    const storageKey = `processing_${sessionId}`;
+    if (typeof window !== "undefined") {
+      const isProcessing = sessionStorage.getItem(storageKey);
+      if (isProcessing === "true") {
+        log.info("[Success Page] Already processing this session, skipping", { sessionId });
+        return;
+      }
+    }
+    
+    // Prevent multiple calls for the same sessionId
+    if (sessionIdRef.current === sessionId && (hasProcessedRef.current || processingRef.current)) {
+      return;
+    }
+    
+    // Mark this sessionId as being processed
+    sessionIdRef.current = sessionId;
+    
+    // Prevent multiple calls - check refs
+    if (hasProcessedRef.current || processingRef.current) return;
+    
+    // Mark as processing in sessionStorage
+    if (typeof window !== "undefined") {
+      sessionStorage.setItem(storageKey, "true");
+    }
 
     const processPurchase = async () => {
-      // Prevent multiple simultaneous calls
+      // Double-check to prevent race conditions
       if (processingRef.current) return;
       processingRef.current = true;
 
       try {
         // Wait 2 seconds to allow webhook to fire first
         await new Promise((resolve) => setTimeout(resolve, 2000));
+
+        // Check again after delay (in case component unmounted/remounted or session changed)
+        if (hasProcessedRef.current || sessionIdRef.current !== sessionId) {
+          processingRef.current = false;
+          return;
+        }
 
         setProcessingStatus("processing");
         const token = await user.getIdToken();
@@ -51,32 +84,68 @@ function SuccessContent() {
           body: JSON.stringify({ sessionId }),
         });
 
+        const data = await response.json();
+
         if (response.ok) {
-          const data = await response.json();
+          // Success - purchase processed or already processed
           setProcessingStatus("success");
           hasProcessedRef.current = true;
+          
+          // Clear sessionStorage flag
+          if (typeof window !== "undefined") {
+            sessionStorage.removeItem(storageKey);
+            sessionStorage.setItem(`processed_${sessionId}`, "true");
+          }
+          
+          // Extract transaction IDs from response (works for both new and already processed)
+          setTransactionData({
+            artMintTransactionId: data.transactionId,
+            gatewayPaymentId: data.gatewayPaymentId || sessionId,
+          });
+          
           // Refresh wallet after processing
           refreshWallet();
         } else {
-          const error = await response.json();
-          // If already processed, that's fine
-          if (error.message?.includes("already processed") || error.message?.includes("Purchase already processed")) {
+          // Error response
+          // Backend should return 200 even if already processed, but handle error case
+          if (data.message?.includes("already processed") || data.message?.includes("Purchase already processed")) {
             setProcessingStatus("success");
             hasProcessedRef.current = true;
+            
+            // Try to get transaction ID from error response if available
+            if (data.transactionId) {
+              setTransactionData({
+                artMintTransactionId: data.transactionId,
+                gatewayPaymentId: data.gatewayPaymentId || sessionId,
+              });
+            }
           } else {
-            log.error("Failed to process purchase", error);
+            log.error("Failed to process purchase", data);
             setProcessingStatus("error");
           }
         }
       } catch (error) {
         log.error("Error processing purchase", error);
         setProcessingStatus("error");
+        // Clear sessionStorage flag on error so it can be retried
+        if (typeof window !== "undefined") {
+          sessionStorage.removeItem(storageKey);
+        }
       } finally {
         processingRef.current = false;
       }
     };
 
     processPurchase();
+    
+    // Cleanup function to prevent calls if component unmounts
+    return () => {
+      // Don't reset hasProcessedRef - we want to remember if it was processed
+      // Only reset processingRef if we're still processing
+      if (processingRef.current) {
+        processingRef.current = false;
+      }
+    };
   }, [sessionId, user]); // Removed refreshWallet from dependencies
 
   return (
@@ -152,7 +221,7 @@ function SuccessContent() {
               transition={{ delay: 0.3 }}
               className="text-4xl md:text-5xl font-bold mb-4"
             >
-              Congratulations!
+              {processingStatus === "success" ? "Congratulations!" : "Payment Successful!"}
             </motion.h1>
 
             <motion.p
@@ -161,11 +230,23 @@ function SuccessContent() {
               transition={{ delay: 0.4 }}
               className="text-xl text-muted-foreground mb-8"
             >
-              You are now the proud owner of a digital masterpiece.
-              <br />
-              <span className="text-mint-500 font-semibold">
-                Art. Owned. Forever.
-              </span>
+              {processingStatus === "success" ? (
+                <>
+                  You are now the proud owner of a digital masterpiece.
+                  <br />
+                  <span className="text-mint-500 font-semibold">
+                    Art. Owned. Forever.
+                  </span>
+                </>
+              ) : (
+                <>
+                  Your payment has been processed successfully.
+                  <br />
+                  <span className="text-mint-500 font-semibold">
+                    Processing your purchase...
+                  </span>
+                </>
+              )}
             </motion.p>
 
             {/* Info Cards */}
@@ -199,22 +280,50 @@ function SuccessContent() {
               </Card>
             </motion.div>
 
-            {/* Session ID */}
-            {sessionId && (
+            {/* Transaction IDs */}
+            {processingStatus === "success" && transactionData && (
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ delay: 0.6 }}
                 className="mb-8"
               >
-                <p className="text-xs text-muted-foreground mb-2 font-mono">
-                  Transaction: {sessionId.slice(0, 24)}...
-                </p>
+                <Card className="border-mint-500/30 bg-secondary/50">
+                  <CardContent className="p-6">
+                    <h3 className="text-lg font-semibold mb-4 text-center">Transaction Details</h3>
+                    <div className="space-y-4">
+                      {transactionData.artMintTransactionId && (
+                        <div>
+                          <p className="text-sm text-muted-foreground mb-1">ArtMint Transaction ID</p>
+                          <p className="text-sm font-mono bg-gallery-dark p-2 rounded border border-mint-500/20 break-all">
+                            {transactionData.artMintTransactionId}
+                          </p>
+                        </div>
+                      )}
+                      {transactionData.gatewayPaymentId && (
+                        <div>
+                          <p className="text-sm text-muted-foreground mb-1">Payment ID</p>
+                          <p className="text-sm font-mono bg-gallery-dark p-2 rounded border border-mint-500/20 break-all">
+                            {transactionData.gatewayPaymentId}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            )}
+
+            {/* Processing Status */}
+            {sessionId && processingStatus !== "success" && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.6 }}
+                className="mb-8"
+              >
                 {processingStatus === "processing" && (
                   <p className="text-sm text-mint-500">Processing purchase...</p>
-                )}
-                {processingStatus === "success" && (
-                  <p className="text-sm text-green-500">Purchase processed successfully!</p>
                 )}
                 {processingStatus === "error" && (
                   <p className="text-sm text-yellow-500">

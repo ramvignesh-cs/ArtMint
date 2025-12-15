@@ -89,10 +89,8 @@ export async function PUT(
     const artMetadata = currentAsset.custom_metadata?.art_metadata;
     const artistUid = artMetadata?.artist_uid;
     const currentStatus = artMetadata?.status;
-    const owners = artMetadata?.owners || [];
-    
-    // Check if user is the current owner (last owner in the array)
-    const isCurrentOwner = owners.length > 0 && owners[owners.length - 1]?.user_id === userId;
+    // Check if user is the current owner
+    const isCurrentOwner = artMetadata?.current_owner?.user_id === userId;
     const isArtist = artistUid === userId;
     
     if (!isArtist && !isCurrentOwner) {

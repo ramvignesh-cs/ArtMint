@@ -19,6 +19,10 @@ import {
   Loader2,
   Edit,
   DollarSign,
+  X,
+  HandCoins,
+  Check,
+  XCircle,
 } from "lucide-react";
 import { Header } from "@/components/shared/Header";
 import { Footer } from "@/components/shared/Footer";
@@ -48,19 +52,35 @@ export default function ArtworkDetailPage() {
   const router = useRouter();
   const { user, profile } = useAuth();
   const [artwork, setArtwork] = useState<Asset | null>(null);
+  const [rawStatus, setRawStatus] = useState<"sold" | "sale" | "resale" | null>(
+    null
+  );
   const [loading, setLoading] = useState(true);
   const [purchasing, setPurchasing] = useState(false);
   const [isLiked, setIsLiked] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [resaleDialogOpen, setResaleDialogOpen] = useState(false);
+  const [withdrawDialogOpen, setWithdrawDialogOpen] = useState(false);
+  const [offerDialogOpen, setOfferDialogOpen] = useState(false);
+  const [offersDialogOpen, setOffersDialogOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [resaling, setResaling] = useState(false);
+  const [withdrawing, setWithdrawing] = useState(false);
+  const [submittingOffer, setSubmittingOffer] = useState(false);
+  const [loadingOffers, setLoadingOffers] = useState(false);
+  const [offers, setOffers] = useState<any[]>([]);
+  const [offersCount, setOffersCount] = useState(0);
+  const [acceptedOffer, setAcceptedOffer] = useState<any>(null);
   const [editForm, setEditForm] = useState({
     title: "",
     description: "",
     price: 0,
   });
   const [resalePrice, setResalePrice] = useState(0);
+  const [offerForm, setOfferForm] = useState({
+    amount: 0,
+    message: "",
+  });
 
   const assetUid = params.assetUid as string;
 
@@ -78,6 +98,11 @@ export default function ArtworkDetailPage() {
         // Map ContentstackAsset to Asset format
         const contentstackAsset: ContentstackAsset = data.asset;
         const artMetadata = contentstackAsset.custom_metadata?.art_metadata;
+        const rawStatusValue = artMetadata?.status as
+          | "sold"
+          | "sale"
+          | "resale"
+          | null;
 
         const mappedArtwork: Asset = {
           uid: contentstackAsset.uid,
@@ -102,19 +127,36 @@ export default function ArtworkDetailPage() {
             artistName: artMetadata?.artist_name || "Unknown Artist",
             price: artMetadata?.price || 0,
             currency: artMetadata?.currency || "USD",
-            status: artMetadata?.status === "sold" ? "sold" : artMetadata?.status === "sale" ? "published" : "draft",
-            owners: (artMetadata?.owners || []).map((owner) => ({
-              userId: owner.user_id || "",
-              userName: owner.user_name || undefined,
-              purchaseDate: owner.purchase_date || "",
-              transactionId: owner.transaction_id || "",
-            })),
+            status:
+              artMetadata?.status === "sold"
+                ? "sold"
+                : artMetadata?.status === "sale" ||
+                  artMetadata?.status === "resale"
+                ? "published"
+                : "draft",
+            current_owner: artMetadata?.current_owner
+              ? {
+                  userId: artMetadata.current_owner.user_id || "",
+                  userName: artMetadata.current_owner.user_name || undefined,
+                  purchaseDate: artMetadata.current_owner.purchase_date || "",
+                  transactionId: artMetadata.current_owner.transaction_id || "",
+                }
+              : null,
+            ownership_history: (artMetadata?.ownership_history || []).map(
+              (owner) => ({
+                userId: owner.user_id || "",
+                userName: owner.user_name || undefined,
+                purchaseDate: owner.purchase_date || "",
+                transactionId: owner.transaction_id || "",
+              })
+            ),
             createdAt: contentstackAsset.created_at,
             tags: contentstackAsset.tags || [],
-          },
+          } as ArtworkMetadata,
         };
 
         setArtwork(mappedArtwork);
+        setRawStatus(rawStatusValue || null);
       } catch (error: any) {
         log.error("Error fetching artwork", error);
         toast({
@@ -135,12 +177,23 @@ export default function ArtworkDetailPage() {
 
   const metadata = artwork?.metadata as ArtworkMetadata | undefined;
   const isArtist = metadata?.artistId === profile?.id;
-  const owners = metadata?.owners || [];
-  const isCurrentOwner = owners.length > 0 && owners[owners.length - 1]?.userId === profile?.id;
-  const isSold = metadata?.status === "sold";
+  const isCurrentOwner = metadata?.current_owner?.userId === profile?.id;
+  console.log("isCurrentOwner", isCurrentOwner);
+  const isSold = rawStatus === "sold";
   const canEditTitleDesc = isArtist && !isSold;
   const canEditPrice = isArtist || isCurrentOwner;
   const canResale = isCurrentOwner;
+
+  // Load offers count and accepted offer when user/profile changes
+  useEffect(() => {
+    if (user && profile && assetUid) {
+      if (isCurrentOwner) {
+        loadOffers();
+      } else {
+        loadAcceptedOffer();
+      }
+    }
+  }, [user, profile, assetUid, isCurrentOwner]);
 
   // Open edit dialog and populate form
   const handleOpenEdit = () => {
@@ -172,8 +225,10 @@ export default function ArtworkDetailPage() {
 
       // Only include fields that can be updated based on permissions
       if (canEditTitleDesc) {
-        if (editForm.title !== metadata?.title) updateData.title = editForm.title;
-        if (editForm.description !== metadata?.description) updateData.description = editForm.description;
+        if (editForm.title !== metadata?.title)
+          updateData.title = editForm.title;
+        if (editForm.description !== metadata?.description)
+          updateData.description = editForm.description;
       }
       if (canEditPrice && editForm.price !== metadata?.price) {
         updateData.price = editForm.price;
@@ -218,6 +273,11 @@ export default function ArtworkDetailPage() {
       if (refreshResponse.ok) {
         const contentstackAsset: ContentstackAsset = refreshData.asset;
         const artMetadata = contentstackAsset.custom_metadata?.art_metadata;
+        const rawStatusValue = artMetadata?.status as
+          | "sold"
+          | "sale"
+          | "resale"
+          | null;
         const mappedArtwork: Asset = {
           uid: contentstackAsset.uid,
           title: contentstackAsset.title,
@@ -241,18 +301,35 @@ export default function ArtworkDetailPage() {
             artistName: artMetadata?.artist_name || "Unknown Artist",
             price: artMetadata?.price || 0,
             currency: artMetadata?.currency || "USD",
-            status: artMetadata?.status === "sold" ? "sold" : artMetadata?.status === "sale" ? "published" : "draft",
-            owners: (artMetadata?.owners || []).map((owner) => ({
-              userId: owner.user_id || "",
-              userName: owner.user_name || undefined,
-              purchaseDate: owner.purchase_date || "",
-              transactionId: owner.transaction_id || "",
-            })),
+            status:
+              artMetadata?.status === "sold"
+                ? "sold"
+                : artMetadata?.status === "sale" ||
+                  artMetadata?.status === "resale"
+                ? "published"
+                : "draft",
+            current_owner: artMetadata?.current_owner
+              ? {
+                  userId: artMetadata.current_owner.user_id || "",
+                  userName: artMetadata.current_owner.user_name || undefined,
+                  purchaseDate: artMetadata.current_owner.purchase_date || "",
+                  transactionId: artMetadata.current_owner.transaction_id || "",
+                }
+              : null,
+            ownership_history: (artMetadata?.ownership_history || []).map(
+              (owner) => ({
+                userId: owner.user_id || "",
+                userName: owner.user_name || undefined,
+                purchaseDate: owner.purchase_date || "",
+                transactionId: owner.transaction_id || "",
+              })
+            ),
             createdAt: contentstackAsset.created_at,
             tags: contentstackAsset.tags || [],
-          },
+          } as ArtworkMetadata,
         };
         setArtwork(mappedArtwork);
+        setRawStatus(rawStatusValue || null);
       }
     } catch (error: any) {
       toast({
@@ -315,13 +392,18 @@ export default function ArtworkDetailPage() {
 
       setResaleDialogOpen(false);
       setResalePrice(0);
-      
+
       // Refresh artwork data
       const refreshResponse = await fetch(`/api/assets/${assetUid}`);
       const refreshData = await refreshResponse.json();
       if (refreshResponse.ok) {
         const contentstackAsset: ContentstackAsset = refreshData.asset;
         const artMetadata = contentstackAsset.custom_metadata?.art_metadata;
+        const rawStatusValue = artMetadata?.status as
+          | "sold"
+          | "sale"
+          | "resale"
+          | null;
         const mappedArtwork: Asset = {
           uid: contentstackAsset.uid,
           title: contentstackAsset.title,
@@ -345,18 +427,35 @@ export default function ArtworkDetailPage() {
             artistName: artMetadata?.artist_name || "Unknown Artist",
             price: artMetadata?.price || 0,
             currency: artMetadata?.currency || "USD",
-            status: artMetadata?.status === "sold" ? "sold" : artMetadata?.status === "sale" ? "published" : "draft",
-            owners: (artMetadata?.owners || []).map((owner) => ({
-              userId: owner.user_id || "",
-              userName: owner.user_name || undefined,
-              purchaseDate: owner.purchase_date || "",
-              transactionId: owner.transaction_id || "",
-            })),
+            status:
+              artMetadata?.status === "sold"
+                ? "sold"
+                : artMetadata?.status === "sale" ||
+                  artMetadata?.status === "resale"
+                ? "published"
+                : "draft",
+            current_owner: artMetadata?.current_owner
+              ? {
+                  userId: artMetadata.current_owner.user_id || "",
+                  userName: artMetadata.current_owner.user_name || undefined,
+                  purchaseDate: artMetadata.current_owner.purchase_date || "",
+                  transactionId: artMetadata.current_owner.transaction_id || "",
+                }
+              : null,
+            ownership_history: (artMetadata?.ownership_history || []).map(
+              (owner) => ({
+                userId: owner.user_id || "",
+                userName: owner.user_name || undefined,
+                purchaseDate: owner.purchase_date || "",
+                transactionId: owner.transaction_id || "",
+              })
+            ),
             createdAt: contentstackAsset.created_at,
             tags: contentstackAsset.tags || [],
-          },
+          } as ArtworkMetadata,
         };
         setArtwork(mappedArtwork);
+        setRawStatus(rawStatusValue || null);
       }
     } catch (error: any) {
       toast({
@@ -366,6 +465,292 @@ export default function ArtworkDetailPage() {
       });
     } finally {
       setResaling(false);
+    }
+  };
+
+  // Handle withdrawal from resale
+  const handleWithdrawResale = async () => {
+    if (!user) {
+      toast({
+        title: "Sign in required",
+        description: "Please sign in to withdraw this artwork from resale.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setWithdrawing(true);
+    try {
+      const token = await user.getIdToken();
+
+      const response = await fetch(`/api/assets/${assetUid}/resale`, {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to withdraw artwork from resale");
+      }
+
+      toast({
+        title: "Withdrawn from resale",
+        description:
+          "Your artwork has been withdrawn from resale successfully.",
+        variant: "success",
+      });
+
+      setWithdrawDialogOpen(false);
+
+      // Refresh artwork data
+      const refreshResponse = await fetch(`/api/assets/${assetUid}`);
+      const refreshData = await refreshResponse.json();
+      if (refreshResponse.ok) {
+        const contentstackAsset: ContentstackAsset = refreshData.asset;
+        const artMetadata = contentstackAsset.custom_metadata?.art_metadata;
+        const rawStatusValue = artMetadata?.status as
+          | "sold"
+          | "sale"
+          | "resale"
+          | null;
+        const mappedArtwork: Asset = {
+          uid: contentstackAsset.uid,
+          title: contentstackAsset.title,
+          filename: contentstackAsset.file_name,
+          url: contentstackAsset.url,
+          content_type: contentstackAsset.content_type,
+          file_size: contentstackAsset.file_size,
+          created_at: contentstackAsset.created_at,
+          updated_at: contentstackAsset.updated_at,
+          dimension: contentstackAsset.dimensions
+            ? {
+                width: contentstackAsset.dimensions.width,
+                height: contentstackAsset.dimensions.height,
+              }
+            : undefined,
+          metadata: {
+            title: contentstackAsset.title,
+            description: contentstackAsset.description || undefined,
+            category: artMetadata?.category || "Uncategorized",
+            artistId: artMetadata?.artist_uid || "",
+            artistName: artMetadata?.artist_name || "Unknown Artist",
+            price: artMetadata?.price || 0,
+            currency: artMetadata?.currency || "USD",
+            status:
+              artMetadata?.status === "sold"
+                ? "sold"
+                : artMetadata?.status === "sale" ||
+                  artMetadata?.status === "resale"
+                ? "published"
+                : "draft",
+            current_owner: artMetadata?.current_owner
+              ? {
+                  userId: artMetadata.current_owner.user_id || "",
+                  userName: artMetadata.current_owner.user_name || undefined,
+                  purchaseDate: artMetadata.current_owner.purchase_date || "",
+                  transactionId: artMetadata.current_owner.transaction_id || "",
+                }
+              : null,
+            ownership_history: (artMetadata?.ownership_history || []).map(
+              (owner) => ({
+                userId: owner.user_id || "",
+                userName: owner.user_name || undefined,
+                purchaseDate: owner.purchase_date || "",
+                transactionId: owner.transaction_id || "",
+              })
+            ),
+            createdAt: contentstackAsset.created_at,
+            tags: contentstackAsset.tags || [],
+          } as ArtworkMetadata,
+        };
+        setArtwork(mappedArtwork);
+        setRawStatus(rawStatusValue || null);
+      }
+    } catch (error: any) {
+      toast({
+        title: "Withdrawal failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    } finally {
+      setWithdrawing(false);
+    }
+  };
+
+  // Load offers for current owner
+  const loadOffers = async () => {
+    if (!user || !isCurrentOwner) return;
+
+    setLoadingOffers(true);
+    try {
+      const token = await user.getIdToken();
+      const [offersResponse, countResponse] = await Promise.all([
+        fetch(`/api/assets/${assetUid}/offers`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }),
+        fetch(`/api/assets/${assetUid}/offers/count`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }),
+      ]);
+
+      const offersData = await offersResponse.json();
+      const countData = await countResponse.json();
+
+      if (offersResponse.ok) {
+        setOffers(offersData.offers || []);
+      }
+      if (countResponse.ok) {
+        setOffersCount(countData.count || 0);
+      }
+    } catch (error: any) {
+      log.error("Error loading offers", error);
+    } finally {
+      setLoadingOffers(false);
+    }
+  };
+
+  // Load accepted offer for current user (if they made an offer)
+  const loadAcceptedOffer = async () => {
+    if (!user || isCurrentOwner) return; // Only for buyers, not owners
+
+    try {
+      const token = await user.getIdToken();
+      const response = await fetch(`/api/assets/${assetUid}/offers/accepted`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const data = await response.json();
+      if (response.ok && data.offer) {
+        setAcceptedOffer(data.offer);
+      } else {
+        setAcceptedOffer(null);
+      }
+    } catch (error: any) {
+      log.error("Error loading accepted offer", error);
+      setAcceptedOffer(null);
+    }
+  };
+
+  // Handle offer submission
+  const handleOfferSubmit = async () => {
+    if (!user) {
+      toast({
+        title: "Sign in required",
+        description: "Please sign in to make an offer.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (offerForm.amount <= 0) {
+      toast({
+        title: "Invalid amount",
+        description: "Please enter a valid offer amount.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setSubmittingOffer(true);
+    try {
+      const token = await user.getIdToken();
+
+      const response = await fetch(`/api/assets/${assetUid}/offers`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          amount: offerForm.amount,
+          currency: metadata?.currency || "USD",
+          message: offerForm.message,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to submit offer");
+      }
+
+      toast({
+        title: "Offer submitted",
+        description:
+          "Your offer has been submitted successfully. The owner will be notified.",
+        variant: "success",
+      });
+
+      setOfferDialogOpen(false);
+      setOfferForm({ amount: 0, message: "" });
+
+      // Reload accepted offer if user is a buyer
+      if (!isCurrentOwner) {
+        await loadAcceptedOffer();
+      }
+    } catch (error: any) {
+      toast({
+        title: "Offer failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    } finally {
+      setSubmittingOffer(false);
+    }
+  };
+
+  // Handle offer acceptance/rejection
+  const handleOfferAction = async (
+    offerId: string,
+    action: "accepted" | "rejected"
+  ) => {
+    if (!user) return;
+
+    try {
+      const token = await user.getIdToken();
+
+      const response = await fetch(
+        `/api/assets/${assetUid}/offers/${offerId}`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ status: action }),
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || `Failed to ${action} offer`);
+      }
+
+      toast({
+        title: `Offer ${action}`,
+        description: `The offer has been ${action} successfully.`,
+        variant: "success",
+      });
+
+      // Reload offers and count
+      await loadOffers();
+    } catch (error: any) {
+      toast({
+        title: "Action failed",
+        description: error.message,
+        variant: "destructive",
+      });
     }
   };
 
@@ -393,7 +778,7 @@ export default function ArtworkDetailPage() {
     try {
       // Get Firebase ID token for authentication
       const token = await user.getIdToken();
-      
+
       // Create checkout session
       const response = await fetch("/api/purchase/checkout", {
         method: "POST",
@@ -469,7 +854,8 @@ export default function ArtworkDetailPage() {
     );
   }
 
-  const isOwned = metadata?.owners?.some((o) => o.userId === profile?.id);
+  // Check if user is the CURRENT owner (last owner in the array)
+  const isOwned = metadata?.current_owner?.userId === profile?.id;
 
   return (
     <div className="min-h-screen bg-gallery-dark">
@@ -604,7 +990,9 @@ export default function ArtworkDetailPage() {
                         <div className="flex items-center gap-3 p-4 rounded-lg bg-mint-500/10 border border-mint-500/20 hover:bg-mint-500/20 transition-colors cursor-pointer group">
                           <CheckCircle className="w-6 h-6 text-mint-500" />
                           <div className="flex-1">
-                            <p className="font-semibold">You own this artwork</p>
+                            <p className="font-semibold">
+                              You own this artwork
+                            </p>
                             <p className="text-sm text-muted-foreground group-hover:text-mint-500 transition-colors">
                               View in your collection →
                             </p>
@@ -612,39 +1000,159 @@ export default function ArtworkDetailPage() {
                         </div>
                       </Link>
                       {canResale && (
-                        <Button
-                          variant="outline"
-                          size="lg"
-                          className="w-full"
-                          onClick={() => {
-                            setResalePrice(metadata?.price || 0);
-                            setResaleDialogOpen(true);
-                          }}
-                        >
-                          <DollarSign className="w-5 h-5 mr-2" />
-                          List for Resale
-                        </Button>
+                        <div className="space-y-2">
+                          {rawStatus === "sold" && offersCount > 0 ? (
+                            <Button
+                              variant="outline"
+                              size="lg"
+                              className="w-full relative"
+                              onClick={async () => {
+                                await loadOffers();
+                                setOffersDialogOpen(true);
+                              }}
+                            >
+                              <HandCoins className="w-5 h-5 mr-2" />
+                              View Offers
+                              {offersCount > 0 && (
+                                <span className="ml-2 flex h-5 w-5 items-center justify-center rounded-full bg-mint-500 text-xs font-bold text-gallery-dark">
+                                  {offersCount > 9 ? "9+" : offersCount}
+                                </span>
+                              )}
+                            </Button>
+                          ) : null}
+                          {rawStatus === "resale" ? (
+                            <>
+                              <Button
+                                variant="outline"
+                                size="lg"
+                                className="w-full"
+                                onClick={() => {
+                                  setResalePrice(metadata?.price || 0);
+                                  setResaleDialogOpen(true);
+                                }}
+                              >
+                                <DollarSign className="w-5 h-5 mr-2" />
+                                Update Resale Price
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="lg"
+                                className="w-full border-red-500/50 text-red-500 hover:bg-red-500/10 hover:text-red-600"
+                                onClick={() => setWithdrawDialogOpen(true)}
+                              >
+                                <X className="w-5 h-5 mr-2" />
+                                Withdraw from Resale
+                              </Button>
+                            </>
+                          ) : (
+                            <Button
+                              variant="outline"
+                              size="lg"
+                              className="w-full"
+                              onClick={() => {
+                                setResalePrice(metadata?.price || 0);
+                                setResaleDialogOpen(true);
+                              }}
+                            >
+                              <DollarSign className="w-5 h-5 mr-2" />
+                              List for Resale
+                            </Button>
+                          )}
+                        </div>
                       )}
                     </div>
                   ) : (
-                    <Button
-                      size="lg"
-                      className="w-full"
-                      onClick={handlePurchase}
-                      disabled={purchasing || metadata?.status === "sold"}
-                    >
-                      {purchasing ? (
+                    <div className="space-y-2">
+                      {isSold ? (
                         <>
-                          <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                          Processing...
+                          {/* Check if there's an accepted offer for this buyer (from Firebase) */}
+                          {acceptedOffer &&
+                          acceptedOffer.buyerId === profile?.id ? (
+                            <div className="space-y-3">
+                              <div className="p-4 rounded-lg bg-mint-500/10 border border-mint-500/20 text-center">
+                                <p className="font-semibold text-lg mb-1 text-mint-500">
+                                  Offer Accepted!
+                                </p>
+                                <p className="text-sm text-muted-foreground mb-3">
+                                  Your offer of{" "}
+                                  {formatCurrency(
+                                    acceptedOffer.amount || 0,
+                                    acceptedOffer.currency || "USD"
+                                  )}{" "}
+                                  has been accepted.
+                                </p>
+                                <Button
+                                  size="lg"
+                                  className="w-full"
+                                  onClick={handlePurchase}
+                                  disabled={purchasing}
+                                >
+                                  {purchasing ? (
+                                    <>
+                                      <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                                      Processing...
+                                    </>
+                                  ) : (
+                                    <>
+                                      <ShoppingCart className="w-5 h-5 mr-2" />
+                                      Complete Purchase
+                                    </>
+                                  )}
+                                </Button>
+                              </div>
+                            </div>
+                          ) : (
+                            <>
+                              <div className="p-4 rounded-lg bg-muted border border-border text-center mb-2">
+                                <p className="font-semibold text-lg mb-1">
+                                  Sold Art
+                                </p>
+                                <p className="text-sm text-muted-foreground">
+                                  This artwork has been sold. Make an offer to
+                                  the current owner.
+                                </p>
+                              </div>
+                              <Button
+                                variant="outline"
+                                size="lg"
+                                className="w-full"
+                                onClick={() => {
+                                  setOfferForm({
+                                    amount: metadata?.price || 0,
+                                    message: "",
+                                  });
+                                  setOfferDialogOpen(true);
+                                }}
+                              >
+                                <HandCoins className="w-5 h-5 mr-2" />
+                                Make an Offer
+                              </Button>
+                            </>
+                          )}
                         </>
                       ) : (
                         <>
-                          <ShoppingCart className="w-5 h-5 mr-2" />
-                          Buy Now
+                          <Button
+                            size="lg"
+                            className="w-full"
+                            onClick={handlePurchase}
+                            disabled={purchasing}
+                          >
+                            {purchasing ? (
+                              <>
+                                <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                                Processing...
+                              </>
+                            ) : (
+                              <>
+                                <ShoppingCart className="w-5 h-5 mr-2" />
+                                Buy Now
+                              </>
+                            )}
+                          </Button>
                         </>
                       )}
-                    </Button>
+                    </div>
                   )}
                 </CardContent>
               </Card>
@@ -653,7 +1161,9 @@ export default function ArtworkDetailPage() {
 
               {/* Description */}
               <div>
-                <h2 className="text-xl font-semibold mb-3">About this artwork</h2>
+                <h2 className="text-xl font-semibold mb-3">
+                  About this artwork
+                </h2>
                 <p className="text-muted-foreground leading-relaxed">
                   {metadata?.description}
                 </p>
@@ -670,7 +1180,9 @@ export default function ArtworkDetailPage() {
                     <div>
                       <p className="text-sm text-muted-foreground">Created</p>
                       <p className="font-medium">
-                        <FormattedDate date={metadata?.createdAt || artwork.created_at} />
+                        <FormattedDate
+                          date={metadata?.createdAt || artwork.created_at}
+                        />
                       </p>
                     </div>
                   </div>
@@ -709,41 +1221,48 @@ export default function ArtworkDetailPage() {
               )}
 
               {/* Ownership History */}
-              {metadata?.owners && metadata.owners.length > 0 && (
-                <div>
-                  <h2 className="text-xl font-semibold mb-4">
-                    Ownership History
-                  </h2>
-                  <div className="space-y-3">
-                    {metadata.owners.map((owner, index) => (
-                      <div
-                        key={owner.transactionId || owner.userId || `owner-${index}`}
-                        className="flex items-center justify-between p-4 rounded-lg bg-secondary"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-full bg-mint-500/20 flex items-center justify-center">
-                            <User className="w-5 h-5 text-mint-500" />
+              {metadata?.ownership_history &&
+                metadata.ownership_history.length > 0 && (
+                  <div>
+                    <h2 className="text-xl font-semibold mb-4">
+                      Ownership History
+                    </h2>
+                    <div className="space-y-3">
+                      {metadata.ownership_history.map((owner, index) => (
+                        <div
+                          key={
+                            owner.transactionId ||
+                            owner.userId ||
+                            `owner-${index}`
+                          }
+                          className="flex items-center justify-between p-4 rounded-lg bg-secondary"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-full bg-mint-500/20 flex items-center justify-center">
+                              <User className="w-5 h-5 text-mint-500" />
+                            </div>
+                            <div>
+                              <p className="font-medium">
+                                {owner.userName || `Owner ${index + 1}`}
+                              </p>
+                              <p className="text-xs text-muted-foreground font-mono">
+                                {owner.transactionId
+                                  ? `${owner.transactionId.slice(0, 16)}...`
+                                  : "N/A"}
+                              </p>
+                            </div>
                           </div>
-                          <div>
-                            <p className="font-medium">
-                              {owner.userName || `Owner ${index + 1}`}
-                            </p>
-                            <p className="text-xs text-muted-foreground font-mono">
-                              {owner.transactionId ? `${owner.transactionId.slice(0, 16)}...` : "N/A"}
+                          <div className="text-right">
+                            <p className="text-sm font-medium">Purchased</p>
+                            <p className="text-xs text-muted-foreground">
+                              <FormattedDate date={owner.purchaseDate} />
                             </p>
                           </div>
                         </div>
-                        <div className="text-right">
-                          <p className="text-sm font-medium">Purchased</p>
-                          <p className="text-xs text-muted-foreground">
-                            <FormattedDate date={owner.purchaseDate} />
-                          </p>
-                        </div>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
             </motion.div>
           </div>
         </div>
@@ -793,7 +1312,9 @@ export default function ArtworkDetailPage() {
             )}
             {canEditPrice && (
               <div className="space-y-2">
-                <Label htmlFor="edit-price">Price ({metadata?.currency || "USD"})</Label>
+                <Label htmlFor="edit-price">
+                  Price ({metadata?.currency || "USD"})
+                </Label>
                 <Input
                   id="edit-price"
                   type="number"
@@ -801,7 +1322,10 @@ export default function ArtworkDetailPage() {
                   step="0.01"
                   value={editForm.price}
                   onChange={(e) =>
-                    setEditForm({ ...editForm, price: parseFloat(e.target.value) || 0 })
+                    setEditForm({
+                      ...editForm,
+                      price: parseFloat(e.target.value) || 0,
+                    })
                   }
                   placeholder="0.00"
                 />
@@ -836,12 +1360,15 @@ export default function ArtworkDetailPage() {
           <DialogHeader>
             <DialogTitle>List for Resale</DialogTitle>
             <DialogDescription>
-              Set a new price to list this artwork on the secondary market. Buyers will be able to purchase it at this price.
+              Set a new price to list this artwork on the secondary market.
+              Buyers will be able to purchase it at this price.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="resale-price">Resale Price ({metadata?.currency || "USD"})</Label>
+              <Label htmlFor="resale-price">
+                Resale Price ({metadata?.currency || "USD"})
+              </Label>
               <Input
                 id="resale-price"
                 type="number"
@@ -854,7 +1381,11 @@ export default function ArtworkDetailPage() {
                 placeholder="0.00"
               />
               <p className="text-xs text-muted-foreground">
-                Current price: {formatCurrency(metadata?.price || 0, metadata?.currency || "USD")}
+                Current price:{" "}
+                {formatCurrency(
+                  metadata?.price || 0,
+                  metadata?.currency || "USD"
+                )}
               </p>
             </div>
           </div>
@@ -879,7 +1410,210 @@ export default function ArtworkDetailPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Withdraw from Resale Dialog */}
+      <Dialog open={withdrawDialogOpen} onOpenChange={setWithdrawDialogOpen}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle>Withdraw from Resale</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to withdraw this artwork from resale? It
+              will no longer be available for purchase on the secondary market.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <p className="text-sm text-muted-foreground">
+              This action will change the status back to &quot;sold&quot; and
+              remove it from the marketplace. You can list it for resale again
+              at any time.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setWithdrawDialogOpen(false)}
+              disabled={withdrawing}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleWithdrawResale}
+              disabled={withdrawing}
+              variant="destructive"
+            >
+              {withdrawing ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Withdrawing...
+                </>
+              ) : (
+                "Withdraw from Resale"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Make an Offer Dialog */}
+      <Dialog open={offerDialogOpen} onOpenChange={setOfferDialogOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Make an Offer</DialogTitle>
+            <DialogDescription>
+              Submit an offer to the current owner. They will be notified and
+              can accept or reject your offer.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="offer-amount">
+                Offer Amount ({metadata?.currency || "USD"})
+              </Label>
+              <Input
+                id="offer-amount"
+                type="number"
+                min="0"
+                step="0.01"
+                value={offerForm.amount}
+                onChange={(e) =>
+                  setOfferForm({
+                    ...offerForm,
+                    amount: parseFloat(e.target.value) || 0,
+                  })
+                }
+                placeholder="0.00"
+              />
+              <p className="text-xs text-muted-foreground">
+                Current asking price:{" "}
+                {formatCurrency(
+                  metadata?.price || 0,
+                  metadata?.currency || "USD"
+                )}
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="offer-message">Message (Optional)</Label>
+              <textarea
+                id="offer-message"
+                value={offerForm.message}
+                onChange={(e) =>
+                  setOfferForm({ ...offerForm, message: e.target.value })
+                }
+                placeholder="Add a message to the owner..."
+                rows={4}
+                className="flex w-full rounded-lg border border-input bg-card px-4 py-2 text-sm text-foreground ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint-500/50 focus-visible:border-mint-500 disabled:cursor-not-allowed disabled:opacity-50 transition-all duration-200 resize-none"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setOfferDialogOpen(false)}
+              disabled={submittingOffer}
+            >
+              Cancel
+            </Button>
+            <Button onClick={handleOfferSubmit} disabled={submittingOffer}>
+              {submittingOffer ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Submitting...
+                </>
+              ) : (
+                "Submit Offer"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* View Offers Dialog */}
+      <Dialog open={offersDialogOpen} onOpenChange={setOffersDialogOpen}>
+        <DialogContent className="sm:max-w-[600px] max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Offers</DialogTitle>
+            <DialogDescription>
+              View and manage offers for this artwork. You can accept or reject
+              any offer.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            {loadingOffers ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="w-6 h-6 animate-spin text-mint-500" />
+              </div>
+            ) : offers.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                <HandCoins className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                <p>No offers yet</p>
+                <p className="text-sm mt-2">
+                  Buyers can make offers when your artwork is listed for resale.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {offers.map((offer: any) => (
+                  <Card key={offer.id} className="border-mint-500/30">
+                    <CardContent className="p-4">
+                      <div className="flex items-start justify-between mb-3">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-1">
+                            <User className="w-4 h-4 text-muted-foreground" />
+                            <p className="font-semibold">{offer.buyerName}</p>
+                          </div>
+                          <p className="text-2xl font-bold text-mint-500">
+                            {formatCurrency(offer.amount, offer.currency)}
+                          </p>
+                          {offer.message && (
+                            <p className="text-sm text-muted-foreground mt-2 italic">
+                              &quot;{offer.message}&quot;
+                            </p>
+                          )}
+                          <p className="text-xs text-muted-foreground mt-2">
+                            <FormattedDate date={offer.createdAt} />
+                          </p>
+                        </div>
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="border-green-500/50 text-green-500 hover:bg-green-500/10"
+                            onClick={() =>
+                              handleOfferAction(offer.id, "accepted")
+                            }
+                          >
+                            <Check className="w-4 h-4 mr-1" />
+                            Accept
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="border-red-500/50 text-red-500 hover:bg-red-500/10"
+                            onClick={() =>
+                              handleOfferAction(offer.id, "rejected")
+                            }
+                          >
+                            <XCircle className="w-4 h-4 mr-1" />
+                            Reject
+                          </Button>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setOffersDialogOpen(false)}
+            >
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
-

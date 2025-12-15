@@ -45,7 +45,8 @@ export interface ArtMetadata {
   currency: string | null;
   status: "sold" | "sale" | "resale" | null;
   category: string | null;
-  owners: OwnerRecord[];
+  current_owner: OwnerRecord | null;
+  ownership_history: OwnerRecord[];
 }
 
 export interface OwnerRecord {
@@ -127,7 +128,13 @@ export interface MinimalAssetResponse {
       currency: string | null;
       status: "sold" | "sale" | "resale" | null;
       category: string | null;
-      owners: Array<{
+      current_owner: {
+        user_id: string | null;
+        user_name: string | null;
+        purchase_date: string | null;
+        transaction_id: string | null;
+      } | null;
+      ownership_history: Array<{
         user_id: string | null;
         user_name: string | null;
         purchase_date: string | null;
@@ -173,7 +180,13 @@ export function toMinimalAssetResponse(
         currency: asset.custom_metadata?.art_metadata?.currency || null,
         status: asset.custom_metadata?.art_metadata?.status || null,
         category: asset.custom_metadata?.art_metadata?.category || null,
-        owners: (asset.custom_metadata?.art_metadata?.owners || []).map(
+        current_owner: asset.custom_metadata?.art_metadata?.current_owner ? {
+          user_id: asset.custom_metadata.art_metadata.current_owner.user_id || null,
+          user_name: asset.custom_metadata.art_metadata.current_owner.user_name || null,
+          purchase_date: asset.custom_metadata.art_metadata.current_owner.purchase_date || null,
+          transaction_id: asset.custom_metadata.art_metadata.current_owner.transaction_id || null,
+        } : null,
+        ownership_history: (asset.custom_metadata?.art_metadata?.ownership_history || []).map(
           (owner) => ({
             user_id: owner.user_id || null,
             user_name: owner.user_name || null,
@@ -235,7 +248,8 @@ export interface AssetUpdateParams {
   currency?: string;
   category?: string;
   status?: "sold" | "sale" | "resale";
-  owners?: OwnerRecord[];
+  current_owner?: OwnerRecord | null;
+  ownership_history?: OwnerRecord[];
 }
 
 // ==========================================
@@ -466,7 +480,8 @@ export async function uploadAsset(
       currency: params.currency,
       status: params.status,
       category: params.category,
-      owners: [],
+      current_owner: null,
+      ownership_history: [],
     },
   };
 
@@ -515,7 +530,8 @@ export async function uploadAsset(
         currency: params.currency,
         category: params.category,
         status: params.status,
-        owners: [artistOwner], // Add artist as the first owner
+        current_owner: artistOwner, // Set artist as the current owner
+        ownership_history: [artistOwner], // Add artist to ownership history
       });
     } catch (error) {
       log.error("Failed to update metadata after upload", error);
@@ -575,8 +591,14 @@ export async function updateAssetMetadata(
           params.status || currentAsset.custom_metadata.art_metadata.status,
         category:
           params.category || currentAsset.custom_metadata.art_metadata.category,
-        owners:
-          params.owners || currentAsset.custom_metadata.art_metadata.owners,
+        current_owner:
+          params.current_owner !== undefined
+            ? params.current_owner
+            : currentAsset.custom_metadata.art_metadata.current_owner || null,
+        ownership_history:
+          params.ownership_history !== undefined
+            ? params.ownership_history
+            : currentAsset.custom_metadata.art_metadata.ownership_history || [],
       },
     },
     visual_markups: currentAsset.visual_markups,
@@ -786,20 +808,42 @@ export async function getAssetFromCDA(assetUid: string): Promise<ContentstackAss
 
 /**
  * Add owner to asset (for purchase tracking)
- * Preserves existing owners (append-only for ownership history)
+ * Updates current_owner and appends to ownership_history
+ * Note: ownership_history includes ALL owners including the current one
  */
 export async function addAssetOwner(
   assetUid: string,
   owner: OwnerRecord
 ): Promise<ContentstackAsset> {
   const asset = await getAssetUsingAMV2API(assetUid);
-  const currentOwners = asset.custom_metadata.art_metadata.owners || [];
+  const currentOwner = asset.custom_metadata.art_metadata.current_owner;
+  const ownershipHistory = asset.custom_metadata.art_metadata.ownership_history || [];
 
-  // Append new owner (immutable pattern - never remove existing owners)
-  const updatedOwners = [...currentOwners, owner];
+  // Move previous current owner to history (if exists and different from new owner)
+  let updatedHistory = ownershipHistory;
+  if (currentOwner && currentOwner.user_id !== owner.user_id) {
+    // Check if previous owner is already in history (avoid duplicates)
+    const alreadyInHistory = ownershipHistory.some(
+      (h) => h.user_id === currentOwner.user_id && h.transaction_id === currentOwner.transaction_id
+    );
+    if (!alreadyInHistory) {
+      updatedHistory = [...ownershipHistory, currentOwner];
+    }
+  }
 
+  // Add new owner to history as well (ownership_history includes current owner)
+  // Check if new owner is already in history (avoid duplicates)
+  const newOwnerInHistory = updatedHistory.some(
+    (h) => h.user_id === owner.user_id && h.transaction_id === owner.transaction_id
+  );
+  const finalHistory = newOwnerInHistory 
+    ? updatedHistory 
+    : [...updatedHistory, owner];
+
+  // Set new owner as current
   return updateAssetMetadata(assetUid, {
-    owners: updatedOwners,
+    current_owner: owner,
+    ownership_history: finalHistory,
     status: "sold",
   });
 }

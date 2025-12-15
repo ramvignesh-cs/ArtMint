@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { verifyWebhookSignature, getCheckoutSession } from "@/lib/stripe";
-import { addServerTransaction, getServerUserProfile, addUserAsset } from "@/lib/firebase-admin";
-import { addAssetOwner } from "@/lib/contentstack-am2";
+import { addServerTransaction, getServerUserProfile, addUserAsset, removeUserAsset } from "@/lib/firebase-admin";
+import { addAssetOwner, triggerContentstackAutomation, updateAssetMetadata, getAssetFromCDA } from "@/lib/contentstack-am2";
 import { createTransactionId } from "@/lib/wallet";
 import { revalidatePath } from "next/cache";
 import { log } from "@/lib/logger";
@@ -85,7 +85,12 @@ export async function POST(request: NextRequest) {
 
         log.info(`Transaction added to wallet`, { transactionId, walletId });
 
-        // 2. Update Contentstack Asset Management 2.0 asset metadata with new owner
+        // 2. Get current asset to find previous owner
+        const currentAsset = await getAssetFromCDA(artworkId);
+        const currentOwner = currentAsset.custom_metadata?.art_metadata?.current_owner;
+        const previousOwnerId = currentOwner?.user_id || null;
+
+        // 3. Update Contentstack Asset Management 2.0 asset metadata with new owner
         const userProfile = await getServerUserProfile(userId);
         const purchaseDate = new Date().toISOString();
 
@@ -96,9 +101,29 @@ export async function POST(request: NextRequest) {
           transaction_id: transactionId,
         });
 
+        // Clear accepted offer in Firebase if purchase was from an accepted offer
+        const { getAcceptedOffer } = await import("@/lib/firebase-admin");
+        const acceptedOffer: any = await getAcceptedOffer(artworkId, userId);
+        if (acceptedOffer && acceptedOffer.buyerId === userId) {
+          // The offer is already marked as accepted, purchase completes the transaction
+          // We don't need to do anything here as the ownership change is handled by addAssetOwner
+        }
+
         log.info(`Ownership updated for artwork`, { artworkId, userId });
 
-        // 3. Add asset to user's collection in Firestore
+        // Trigger Contentstack Automation API to publish latest content to CDN
+        triggerContentstackAutomation(artworkId);
+
+        // 4. Remove asset from previous owner's collection (if exists and different from new owner)
+        if (previousOwnerId && previousOwnerId !== userId) {
+          await removeUserAsset(previousOwnerId, artworkId);
+          log.info(`Removed asset from previous owner's collection`, { 
+            artworkId, 
+            previousOwnerId 
+          });
+        }
+
+        // 5. Add asset to new owner's collection in Firestore
         await addUserAsset(userId, artworkId, {
           transactionId,
           purchaseDate,

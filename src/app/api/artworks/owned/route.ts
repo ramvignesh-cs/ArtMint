@@ -104,14 +104,13 @@ export async function POST(request: NextRequest) {
 
     const assets = await Promise.all(assetPromises);
     
-    // Filter out nulls and verify ownership, then map to minimal format
+    // Filter out nulls and verify current ownership, then map to minimal format
     const ownedArtworks = assets
       .filter((asset) => {
         if (!asset) return false;
         const artMetadata = asset.custom_metadata?.art_metadata;
-        return artMetadata?.owners?.some(
-          (owner) => owner.user_id === userId
-        );
+        // Check if user is the CURRENT owner
+        return artMetadata?.current_owner?.user_id === userId;
       })
       .map((asset) => {
         const minimalAsset = toMinimalAssetResponse(asset!);
@@ -138,7 +137,13 @@ export async function POST(request: NextRequest) {
             price: artMetadata?.price || 0,
             currency: artMetadata?.currency || "USD",
             status: artMetadata?.status === "sold" ? "sold" : artMetadata?.status === "sale" ? "published" : "draft",
-            owners: (artMetadata?.owners || []).map((owner) => ({
+            current_owner: artMetadata?.current_owner ? {
+              userId: artMetadata.current_owner.user_id || "",
+              userName: artMetadata.current_owner.user_name || undefined,
+              purchaseDate: artMetadata.current_owner.purchase_date || "",
+              transactionId: artMetadata.current_owner.transaction_id || "",
+            } : null,
+            ownership_history: (artMetadata?.ownership_history || []).map((owner) => ({
               userId: owner.user_id || "",
               userName: owner.user_name || undefined,
               purchaseDate: owner.purchase_date || "",

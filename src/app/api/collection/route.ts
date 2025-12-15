@@ -74,7 +74,13 @@ export async function GET(request: NextRequest) {
             price: artMetadata?.price || 0,
             currency: artMetadata?.currency || "USD",
             status: artMetadata?.status === "sold" ? "sold" : artMetadata?.status === "sale" ? "published" : "draft",
-            owners: (artMetadata?.owners || []).map((owner) => ({
+            current_owner: artMetadata?.current_owner ? {
+              userId: artMetadata.current_owner.user_id || "",
+              userName: artMetadata.current_owner.user_name || undefined,
+              purchaseDate: artMetadata.current_owner.purchase_date || "",
+              transactionId: artMetadata.current_owner.transaction_id || "",
+            } : null,
+            ownership_history: (artMetadata?.ownership_history || []).map((owner) => ({
               userId: owner.user_id || "",
               userName: owner.user_name || undefined,
               purchaseDate: owner.purchase_date || "",

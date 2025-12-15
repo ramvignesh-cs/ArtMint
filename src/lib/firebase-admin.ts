@@ -227,6 +227,55 @@ export async function addUserAsset(
 }
 
 /**
+ * Remove asset from user's collection (server-side)
+ * Used when artwork is sold to a new owner
+ */
+export async function removeUserAsset(userId: string, assetUid: string) {
+  try {
+    const { FieldValue } = await import("firebase-admin/firestore");
+    const db = adminDb();
+    
+    if (!db) {
+      throw new Error("Firebase Admin database not initialized");
+    }
+    
+    const userAssetsRef = db.collection("user_assets").doc(userId);
+    const userAssetsDoc = await userAssetsRef.get();
+    
+    if (!userAssetsDoc.exists) {
+      log.debug(`[removeUserAsset] User assets document does not exist`, { userId });
+      return; // Nothing to remove
+    }
+    
+    const userAssetsData = userAssetsDoc.data()!;
+    const existingAssets = userAssetsData.assets || [];
+    
+    // Filter out the asset
+    const updatedAssets = existingAssets.filter(
+      (asset: any) => asset.assetUid !== assetUid
+    );
+    
+    if (updatedAssets.length !== existingAssets.length) {
+      // Asset was found and removed
+      await userAssetsRef.update({
+        assets: updatedAssets,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      log.info(`[removeUserAsset] Removed asset from user collection`, { assetUid, userId });
+    } else {
+      log.debug(`[removeUserAsset] Asset not found in user collection`, { assetUid, userId });
+    }
+  } catch (error: any) {
+    log.error(`[removeUserAsset] Error removing asset from user`, error, {
+      assetUid,
+      userId,
+      code: error.code,
+    });
+    // Don't throw - this is not critical enough to fail the purchase
+  }
+}
+
+/**
  * Get user's asset collection (server-side)
  */
 export async function getUserAssets(userId: string) {
@@ -304,5 +353,208 @@ export async function deleteUserByUid(uid: string) {
     log.error(`Error deleting user`, error, { uid });
     throw error;
   }
+}
+
+/**
+ * Create an offer for an asset
+ */
+export async function createOffer(
+  assetUid: string,
+  offerData: {
+    buyerId: string;
+    buyerName: string;
+    amount: number;
+    currency: string;
+    message?: string;
+  }
+) {
+  const { FieldValue } = await import("firebase-admin/firestore");
+  const db = adminDb();
+  
+  const offerId = `OFFER_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+  const offerRef = db.collection("offers").doc(offerId);
+  
+  const offer = {
+    id: offerId,
+    assetUid,
+    buyerId: offerData.buyerId,
+    buyerName: offerData.buyerName,
+    amount: offerData.amount,
+    currency: offerData.currency,
+    message: offerData.message || "",
+    status: "pending" as "pending" | "accepted" | "rejected" | "expired",
+    createdAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+  };
+  
+  await offerRef.set(offer);
+  
+  log.info(`[createOffer] Offer created`, { offerId, assetUid, buyerId: offerData.buyerId });
+  
+  return { ...offer,id: offerId, };
+}
+
+/**
+ * Get offers for an asset
+ */
+export async function getAssetOffers(assetUid: string): Promise<any[]> {
+  const db = adminDb();
+  const offersRef = db.collection("offers");
+  const snapshot = await offersRef
+    .where("assetUid", "==", assetUid)
+    .where("status", "==", "pending")
+    .get();
+  
+  if (snapshot.empty) {
+    return [];
+  }
+  
+  // Map to array and sort by amount (descending)
+  const offers = snapshot.docs.map((doc) => ({
+    id: doc.id,
+    ...doc.data(),
+  }));
+  
+  // Sort by amount in descending order (highest first)
+  return offers.sort((a: any, b: any) => (b.amount || 0) - (a.amount || 0));
+}
+
+/**
+ * Get count of pending offers for an asset
+ */
+export async function getAssetOffersCount(assetUid: string): Promise<number> {
+  const db = adminDb();
+  const offersRef = db.collection("offers");
+  const snapshot = await offersRef
+    .where("assetUid", "==", assetUid)
+    .where("status", "==", "pending")
+    .get();
+  
+  return snapshot.size;
+}
+
+/**
+ * Get accepted offer for an asset (if any)
+ * Optionally filter by buyerId to get accepted offer for a specific buyer
+ */
+export async function getAcceptedOffer(
+  assetUid: string,
+  buyerId?: string
+): Promise<{
+  id: string;
+  assetUid: string;
+  buyerId: string;
+  buyerName: string;
+  amount: number;
+  currency: string;
+  message?: string;
+  status: "accepted";
+  createdAt: any;
+  updatedAt?: any;
+  acceptedAt?: any;
+  acceptedBy?: string;
+} | null> {
+  const db = adminDb();
+  const offersRef = db.collection("offers");
+  
+  let query = offersRef
+    .where("assetUid", "==", assetUid)
+    .where("status", "==", "accepted");
+  
+  // If buyerId is provided, filter by it to get the specific buyer's accepted offer
+  if (buyerId) {
+    query = query.where("buyerId", "==", buyerId) as any;
+  }
+  
+  const snapshot = await query.limit(1).get();
+  
+  log.info(`[getAcceptedOffer] Query result`, {
+    assetUid,
+    buyerId,
+    empty: snapshot.empty,
+    size: snapshot.size,
+  });
+  
+  if (snapshot.empty) {
+    return null;
+  }
+  
+  const doc = snapshot.docs[0];
+  const data = doc.data() as any;
+  
+  log.info(`[getAcceptedOffer] Found offer`, {
+    id: doc.id,
+    buyerId: data.buyerId,
+    status: data.status,
+    assetUid: data.assetUid,
+  });
+  
+  return {
+    id: doc.id,
+    ...data,
+  };
+}
+
+/**
+ * Update offer status (accept or reject)
+ */
+export async function updateOfferStatus(
+  offerId: string,
+  status: "accepted" | "rejected",
+  ownerId: string
+) {
+  const { FieldValue } = await import("firebase-admin/firestore");
+  const db = adminDb();
+  const offerRef = db.collection("offers").doc(offerId);
+  
+  const offerDoc = await offerRef.get();
+  if (!offerDoc.exists) {
+    throw new Error("Offer not found");
+  }
+  
+  const offerData = offerDoc.data()!;
+  
+  // Verify the offer is still pending
+  if (offerData.status !== "pending") {
+    throw new Error(`Offer is already ${offerData.status}`);
+  }
+  
+  await offerRef.update({
+    status,
+    updatedAt: FieldValue.serverTimestamp(),
+    ...(status === "accepted" ? { acceptedBy: ownerId, acceptedAt: FieldValue.serverTimestamp() } : {}),
+  });
+  
+  // If accepted, reject all other pending offers for the same asset
+  if (status === "accepted") {
+    // Query without != operator to avoid requiring an index
+    // We'll filter out the accepted offer in memory
+    const allPendingOffersSnapshot = await db.collection("offers")
+      .where("assetUid", "==", offerData.assetUid)
+      .where("status", "==", "pending")
+      .get();
+    
+    // Filter out the accepted offer
+    const otherOffers = allPendingOffersSnapshot.docs.filter(
+      (doc) => doc.id !== offerId
+    );
+    
+    if (otherOffers.length > 0) {
+      const batch = db.batch();
+      otherOffers.forEach((doc) => {
+        batch.update(doc.ref, {
+          status: "rejected",
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+      });
+      
+      await batch.commit();
+      log.info(`[updateOfferStatus] Rejected ${otherOffers.length} other pending offers`);
+    }
+  }
+  
+  log.info(`[updateOfferStatus] Offer ${status}`, { offerId, assetUid: offerData.assetUid });
+  
+  return { ...offerData, id: offerId, status };
 }
 

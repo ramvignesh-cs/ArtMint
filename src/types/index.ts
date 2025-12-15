@@ -46,7 +46,8 @@ export interface ArtworkMetadata {
   price: number;
   currency: string;
   status: "draft" | "published" | "sold";
-  owners: OwnerRecord[];
+  current_owner: OwnerRecord | null;
+  ownership_history: OwnerRecord[];
   createdAt: string;
   tags?: string[];
 }

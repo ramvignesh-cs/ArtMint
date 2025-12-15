@@ -48,7 +48,8 @@ export interface ArtworkMetadata {
   price: number;
   currency: string;
   status: "draft" | "published" | "sold";
-  owners: OwnerRecord[];
+  current_owner: OwnerRecord | null;
+  ownership_history: OwnerRecord[];
   createdAt: string;
   tags?: string[];
 }
@@ -261,7 +262,8 @@ export async function updateAssetMetadata(
 
 /**
  * Add owner to asset metadata (used after purchase)
- * Preserves existing owners (append-only for ownership history)
+ * Updates current_owner and appends to ownership_history
+ * Note: ownership_history includes ALL owners including the current one
  */
 export async function addAssetOwner(
   assetUid: string,
@@ -275,16 +277,37 @@ export async function addAssetOwner(
   }
 
   const currentMetadata = (asset.metadata as ArtworkMetadata) || {
-    owners: [],
+    current_owner: null,
+    ownership_history: [],
   };
-  const currentOwners = currentMetadata.owners || [];
+  const currentOwner = currentMetadata.current_owner;
+  const ownershipHistory = currentMetadata.ownership_history || [];
 
-  // Append new owner (immutable pattern - never remove existing owners)
-  const updatedOwners = [...currentOwners, owner];
+  // Move previous current owner to history (if exists and different from new owner)
+  let updatedHistory = ownershipHistory;
+  if (currentOwner && currentOwner.userId !== owner.userId) {
+    // Check if previous owner is already in history (avoid duplicates)
+    const alreadyInHistory = ownershipHistory.some(
+      (h) => h.userId === currentOwner.userId && h.transactionId === currentOwner.transactionId
+    );
+    if (!alreadyInHistory) {
+      updatedHistory = [...ownershipHistory, currentOwner];
+    }
+  }
+
+  // Add new owner to history as well (ownership_history includes current owner)
+  // Check if new owner is already in history (avoid duplicates)
+  const newOwnerInHistory = updatedHistory.some(
+    (h) => h.userId === owner.userId && h.transactionId === owner.transactionId
+  );
+  const finalHistory = newOwnerInHistory 
+    ? updatedHistory 
+    : [...updatedHistory, owner];
 
   return updateAssetMetadata(assetUid, {
     ...currentMetadata,
-    owners: updatedOwners,
+    current_owner: owner,
+    ownership_history: finalHistory,
     status: "sold",
   });
 }
@@ -301,7 +324,7 @@ export async function checkOwnership(
   if (!asset?.metadata) return false;
 
   const metadata = asset.metadata as ArtworkMetadata;
-  return metadata.owners?.some((owner) => owner.userId === userId) || false;
+  return metadata.current_owner?.userId === userId || false;
 }
 
 // ==========================================
