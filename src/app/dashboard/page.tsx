@@ -214,13 +214,11 @@ export default function DashboardPage() {
               <CardContent>
                 <div className="flex items-baseline gap-2">
                   <span className="text-3xl font-bold">
-                    {
-                      transactions.filter((t) =>
-                        profile?.role === "artist"
-                          ? t.type === "CREDIT" && t.reference.assetUid
-                          : t.type === "DEBIT" && t.reference.assetUid
-                      ).length
-                    }
+                    {profile?.role === "artist"
+                      ? ownedArtworks.length
+                      : transactions.filter(
+                          (t) => t.type === "DEBIT" && t.reference.assetUid
+                        ).length}
                   </span>
                   <span className="text-muted-foreground">artworks</span>
                 </div>

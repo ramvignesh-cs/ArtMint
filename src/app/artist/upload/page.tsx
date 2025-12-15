@@ -263,7 +263,7 @@ export default function ArtistUploadPage() {
                             {file?.name}
                           </p>
                           <p className="text-xs text-muted-foreground">
-                            {(file?.size || 0 / 1024 / 1024).toFixed(2)} MB
+                            {(file?.size ? file.size / 1024 / 1024 : 0).toFixed(2)} MB
                           </p>
                         </div>
                       </div>
